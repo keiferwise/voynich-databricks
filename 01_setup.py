@@ -52,6 +52,7 @@ spark.sql(f"""
   CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.results (
     run_id        STRING    NOT NULL,
     seed          INT       NOT NULL,
+    encode_seed   INT,
     text_name     STRING    NOT NULL,
     decode_ok     BOOLEAN   NOT NULL,
     zipf_slope    DOUBLE,
@@ -77,6 +78,7 @@ spark.sql(f"""
   CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.ciphertext (
     run_id        STRING    NOT NULL,
     seed          INT       NOT NULL,
+    encode_seed   INT,
     text_name     STRING    NOT NULL,
     position      INT       NOT NULL,
     token         STRING    NOT NULL,
@@ -95,6 +97,7 @@ spark.sql(f"""
   CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.failed_runs (
     run_id        STRING    NOT NULL,
     seed          INT       NOT NULL,
+    encode_seed   INT,
     text_name     STRING    NOT NULL,
     error_type    STRING,
     error_message STRING,

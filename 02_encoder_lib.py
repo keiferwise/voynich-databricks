@@ -332,9 +332,10 @@ def would_collide(token: str, anchors: list, rules: list) -> bool:
     return token in anchor_tokens or token in base_word_tokens
 
 
-def get_anchor_for_position(position: int, anchors: list) -> Optional[AnchorWord]:
+def get_anchor_for_position(position: int, anchors: list,
+                            rng: random.Random) -> Optional[AnchorWord]:
     matches = [a for a in anchors if a.position == position]
-    return random.choice(matches) if matches else None
+    return rng.choice(matches) if matches else None
 
 
 def get_valid_rules_for_distance(distance, history, anchors, rules):
@@ -369,11 +370,11 @@ def get_valid_rules_for_distance(distance, history, anchors, rules):
     return candidates
 
 
-def apply_shaping(candidates: list, shaping_rules: list) -> str:
+def apply_shaping(candidates: list, shaping_rules: list, rng: random.Random) -> str:
     if not shaping_rules:
         rules_list, tokens = zip(*candidates)
         weights = [r.weight for r in rules_list]
-        return random.choices(tokens, weights=weights, k=1)[0]
+        return rng.choices(tokens, weights=weights, k=1)[0]
     weights = []
     for rule, token in candidates:
         w = rule.weight
@@ -382,12 +383,17 @@ def apply_shaping(candidates: list, shaping_rules: list) -> str:
                 w *= multiplier
         weights.append(w)
     _, tokens = zip(*candidates)
-    return random.choices(list(tokens), weights=weights, k=1)[0]
+    return rng.choices(list(tokens), weights=weights, k=1)[0]
 
 
-def encode(plaintext: str, config: EncoderConfig,
+def encode(plaintext: str, config: EncoderConfig, rng: random.Random,
            history: list = None, position: int = 0,
            is_first: bool = True) -> list:
+    """
+    All random choices (gallows, anchor roll, weighted candidate pick) come
+    from `rng`, so the same rule set + rng state always gives the same output.
+    The choices only pick between equivalent spellings; decoding never needs rng.
+    """
     ALPHA    = "abcdefghijklmnopqrstuvwxyz"
     history  = history or []
     output   = []
@@ -401,29 +407,29 @@ def encode(plaintext: str, config: EncoderConfig,
         distance   = (target - position) % 26
         candidates = get_valid_rules_for_distance(distance, history,
                                                   config.anchors, config.rules)
-        anchor     = get_anchor_for_position(target, config.anchors)
+        anchor     = get_anchor_for_position(target, config.anchors, rng)
 
         if is_first:
             if not anchor:
                 raise ValueError(f"No anchor for first character '{ch}'")
             if config.paragraph_gallows:
-                gallows_token = random.choice(GALLOWS)
+                gallows_token = rng.choice(GALLOWS)
                 output.append(gallows_token)
                 history.append(gallows_token)
             token    = anchor.token
             is_first = False
-        elif not candidates or random.random() < config.anchor_probability:
+        elif not candidates or rng.random() < config.anchor_probability:
             if anchor:
                 token = anchor.token
             elif candidates:
-                token = apply_shaping(candidates, config.shaping_rules)
+                token = apply_shaping(candidates, config.shaping_rules, rng)
             else:
                 raise ValueError(
                     f"No rule or anchor for distance {distance} "
                     f"('{ALPHA[position]}' -> '{ch}')"
                 )
         else:
-            token = apply_shaping(candidates, config.shaping_rules)
+            token = apply_shaping(candidates, config.shaping_rules, rng)
 
         output.append(token)
         history.append(token)
@@ -436,7 +442,15 @@ def clean_text(text: str) -> str:
     return re.sub(r'[^a-z]', '', text.lower()).strip()
 
 
-def encode_text(text: str, config: EncoderConfig, chunk_size: int = 100) -> list:
+def encode_text(text: str, config: EncoderConfig, chunk_size: int = 100,
+                encode_seed: int = 0) -> list:
+    """
+    Two seeds define a ciphertext:
+      - rule seed   (in `config`): which rule set, i.e. the key needed to decode
+      - encode_seed:             which of that rule set's many valid spellings
+    Each call gets its own RNG, so threads never share random state.
+    """
+    rng      = random.Random(encode_seed)
     cleaned  = clean_text(text)
     chunks   = [cleaned[i:i+chunk_size] for i in range(0, len(cleaned), chunk_size)]
     output   = []
@@ -448,7 +462,7 @@ def encode_text(text: str, config: EncoderConfig, chunk_size: int = 100) -> list
     for chunk in chunks:
         if not chunk:
             continue
-        encoded = encode(chunk, config, history=history,
+        encoded = encode(chunk, config, rng, history=history,
                          position=position, is_first=is_first)
         output.extend(encoded)
         output.append("\n")

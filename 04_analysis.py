@@ -171,7 +171,10 @@ for ax, text_name in zip(axes, TEXT_NAMES):
         continue
 
     sub["_zipf_dist"] = (sub[slope_col] - VOYNICH["zipf_slope"]).abs()
-    best_seed = int(sub.loc[sub["_zipf_dist"].idxmin(), "seed"])
+    best_row  = sub.loc[sub["_zipf_dist"].idxmin()]
+    best_seed = int(best_row["seed"])
+    # Re-encode with the same encode seed so the plot shows the scored ciphertext
+    best_encode_seed = int(best_row["encode_seed"]) if pd.notna(best_row.get("encode_seed")) else 0
 
     text_file = TEXT_FILE_MAP.get(text_name)
     if not text_file:
@@ -182,7 +185,7 @@ for ax, text_name in zip(axes, TEXT_NAMES):
 
     text    = clean_text(raw[:TEXT_SIZE])
     config  = generate_random_config(seed=best_seed)
-    encoded = encode_text(text, config)
+    encoded = encode_text(text, config, encode_seed=best_encode_seed)
     tokens  = [t for t in encoded if t not in GALLOWS and t != "." and t != "\n"]
 
     from collections import Counter

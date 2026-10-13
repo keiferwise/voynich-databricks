@@ -12,6 +12,9 @@
 # MAGIC - `num_seeds` — number of random seeds to sweep (default 100)
 # MAGIC - `text_size` — characters of plaintext to use per corpus (default 40000)
 # MAGIC - `run_id`    — unique run identifier; auto-generated if blank
+# MAGIC - `encode_seed` — seeds the encoder's spelling choices (default 0). The rule
+# MAGIC   seed picks the rule set; the encode seed picks which of its many valid
+# MAGIC   ciphertexts you get. Same pair = same ciphertext.
 
 # COMMAND ----------
 
@@ -34,16 +37,19 @@ CATALOG = "workspace"
 dbutils.widgets.text("num_seeds", "1",   "Number of seeds")
 dbutils.widgets.text("text_size", "40000", "Characters per text")
 dbutils.widgets.text("run_id",    "",      "Run ID (blank = auto)")
+dbutils.widgets.text("encode_seed", "0",   "Encode seed")
 
 from datetime import datetime
 
 NUM_SEEDS = int(dbutils.widgets.get("num_seeds"))
 TEXT_SIZE = int(dbutils.widgets.get("text_size"))
 RUN_ID    = dbutils.widgets.get("run_id").strip() or datetime.now().strftime("%Y%m%d_%H%M%S")
+ENCODE_SEED = int(dbutils.widgets.get("encode_seed"))
 
 print(f"Run ID:    {RUN_ID}")
 print(f"Seeds:     {NUM_SEEDS}")
 print(f"Text size: {TEXT_SIZE} chars per corpus")
+print(f"Encode seed: {ENCODE_SEED}")
 
 # COMMAND ----------
 
@@ -117,13 +123,14 @@ def run_seed(seed: int) -> tuple:
 
     for text_name, text in TEXTS.items():
         try:
-            encoded   = encode_text(text, config)
+            encoded   = encode_text(text, config, encode_seed=ENCODE_SEED)
             decoded   = decode_text(encoded, config.anchors, config.rules).lstrip("?")
             decode_ok = (decoded == text)
 
             row = {
                 "run_id":     RUN_ID,
                 "seed":       seed,
+                "encode_seed": ENCODE_SEED,
                 "text_name":  text_name,
                 "decode_ok":  decode_ok,
                 "created_at": ts,
@@ -135,6 +142,7 @@ def run_seed(seed: int) -> tuple:
                 failure_rows.append({
                     "run_id":        RUN_ID,
                     "seed":          seed,
+                    "encode_seed":   ENCODE_SEED,
                     "text_name":     text_name,
                     "error_type":    "decode_mismatch",
                     "error_message": f"decoded length={len(decoded)}, expected={len(text)}",
@@ -147,6 +155,7 @@ def run_seed(seed: int) -> tuple:
                 cipher_rows.append({
                     "run_id":     RUN_ID,
                     "seed":       seed,
+                    "encode_seed": ENCODE_SEED,
                     "text_name":  text_name,
                     "position":   i,
                     "token":      token,
@@ -159,6 +168,7 @@ def run_seed(seed: int) -> tuple:
             failure_rows.append({
                 "run_id":        RUN_ID,
                 "seed":          seed,
+                "encode_seed":   ENCODE_SEED,
                 "text_name":     text_name,
                 "error_type":    type(e).__name__,
                 "error_message": str(e),
@@ -173,6 +183,7 @@ with mlflow.start_run(run_name=RUN_ID) as parent_run:
 
     mlflow.log_params({
         "num_seeds":  NUM_SEEDS,
+        "encode_seed": ENCODE_SEED,
         "text_size":  TEXT_SIZE,
         "anchor_prob": 0.15,
         "stat_tests": str(list(STAT_TESTS.keys())),
@@ -198,12 +209,13 @@ with mlflow.start_run(run_name=RUN_ID) as parent_run:
                     nested=True
                 ):
                     mlflow.log_param("seed",      seed)
+                    mlflow.log_param("encode_seed", ENCODE_SEED)
                     mlflow.log_param("text_name", row["text_name"])
                     mlflow.set_tag("decode_ok",   str(row["decode_ok"]))
                     if row["decode_ok"]:
                         numeric_metrics = {
                             k: v for k, v in row.items()
-                            if isinstance(v, (int, float)) and k != "seed"
+                            if isinstance(v, (int, float)) and k not in ("seed", "encode_seed")
                         }
                         mlflow.log_metrics(numeric_metrics)
 
@@ -248,6 +260,7 @@ def reshape_results(rows):
         new_row = {
             "run_id": row["run_id"],
             "seed": row["seed"],
+            "encode_seed": row["encode_seed"],
             "text_name": text_name,
             "decode_ok": row["decode_ok"],
             "created_at": row["created_at"],
@@ -269,31 +282,35 @@ from pyspark.sql.functions import col
 
 df = spark.createDataFrame(pd.DataFrame(reshaped_results)) \
      .withColumn("seed", col("seed").cast("int")) \
+     .withColumn("encode_seed", col("encode_seed").cast("int")) \
      .withColumn("vocab_size", col("vocab_size").cast("int")) \
      .withColumn("token_count", col("token_count").cast("int")) \
      .withColumnRenamed("zipf_r_squared", "zipf_r2") \
      .withColumnRenamed("unigram_entropy", "entropy") \
      .select(
-         "run_id", "seed", "text_name", "decode_ok",
+         "run_id", "seed", "encode_seed", "text_name", "decode_ok",
          "zipf_slope", "zipf_r2", "hapax_ratio", "entropy",
          "vocab_size", "token_count", "avg_length",
          "letter_unigram_predictability", "letter_bigram_predictability",
          "created_at"
      )
 
-df.write.mode("append").saveAsTable(f"{CATALOG}.{SCHEMA}.results")
+# mergeSchema adds the encode_seed column to tables created before it existed
+df.write.mode("append").option("mergeSchema", "true").saveAsTable(f"{CATALOG}.{SCHEMA}.results")
 print(f"Wrote {len(reshaped_results)} rows to {CATALOG}.{SCHEMA}.results")
 
 spark.createDataFrame(pd.DataFrame(all_cipher)) \
      .withColumn("seed", col("seed").cast("int")) \
+     .withColumn("encode_seed", col("encode_seed").cast("int")) \
      .withColumn("position", col("position").cast("int")) \
-     .write.mode("append").saveAsTable(f"{CATALOG}.{SCHEMA}.ciphertext")
+     .write.mode("append").option("mergeSchema", "true").saveAsTable(f"{CATALOG}.{SCHEMA}.ciphertext")
 print(f"Wrote {len(all_cipher)} rows to {CATALOG}.{SCHEMA}.ciphertext")
 
 if all_failures:
     spark.createDataFrame(pd.DataFrame(all_failures)) \
          .withColumn("seed", col("seed").cast("int")) \
-         .write.mode("append").saveAsTable(f"{CATALOG}.{SCHEMA}.failed_runs")
+         .withColumn("encode_seed", col("encode_seed").cast("int")) \
+         .write.mode("append").option("mergeSchema", "true").saveAsTable(f"{CATALOG}.{SCHEMA}.failed_runs")
     print(f"Wrote {len(all_failures)} rows to {CATALOG}.{SCHEMA}.failed_runs")
 
 # COMMAND ----------
