@@ -27,8 +27,10 @@
 # COMMAND ----------
 
 dbutils.widgets.text("run_id", "", "Run ID (blank = latest)")
+dbutils.widgets.text("text_size", "40000", "Characters per text (must match the sweep)")
 
 run_id = dbutils.widgets.get("run_id").strip()
+TEXT_SIZE = int(dbutils.widgets.get("text_size"))
 CATALOG = "workspace"     # ← update if your default catalog is not "main"
 SCHEMA  = "voynich"
 VOLUME  = "raw_files"
@@ -88,8 +90,8 @@ def show_best_seeds(df_pass: pd.DataFrame, text_names: list):
             print(f"\nNo passing seeds for {text_name}")
             continue
 
-        slope_col = f"{text_name}_zipf_slope"
-        r2_col    = f"{text_name}_zipf_r_squared"
+        slope_col = "zipf_slope"
+        r2_col    = "zipf_r2"
 
         sub["_zipf_dist"] = (sub[slope_col] - VOYNICH["zipf_slope"]).abs()
         best = sub.loc[sub["_zipf_dist"].idxmin()]
@@ -103,18 +105,18 @@ def show_best_seeds(df_pass: pd.DataFrame, text_names: list):
         print(f"  {'Zipf R²':<38} {best[r2_col]:>9.4f} {VOYNICH['zipf_r2']:>9.4f}")
 
         for col, label, key in [
-            (f"{text_name}_hapax_ratio",                      "Hapax ratio",                   "hapax_ratio"),
-            (f"{text_name}_unigram_entropy",                  "Unigram entropy",               "unigram_entropy"),
-            (f"{text_name}_letter_unigram_predictability",    "Letter unigram predictability", "letter_unigram_pred"),
-            (f"{text_name}_letter_bigram_predictability",     "Letter bigram predictability",  "letter_bigram_pred"),
-            (f"{text_name}_avg_length",                       "Avg token length",              "avg_length"),
+            ("hapax_ratio",                      "Hapax ratio",                   "hapax_ratio"),
+            ("entropy",                          "Unigram entropy",               "unigram_entropy"),
+            ("letter_unigram_predictability",    "Letter unigram predictability", "letter_unigram_pred"),
+            ("letter_bigram_predictability",     "Letter bigram predictability",  "letter_bigram_pred"),
+            ("avg_length",                       "Avg token length",              "avg_length"),
         ]:
             if col in best and pd.notna(best[col]):
                 pct = "%" if "predictability" in col else ""
                 print(f"  {label:<38} {best[col]:>8.4f}{pct} {VOYNICH[key]:>8.4f}{pct}")
 
-        if f"{text_name}_unique_words" in best:
-            print(f"  {'Vocab size':<38} {int(best[f'{text_name}_unique_words']):>9} {VOYNICH['vocab_size']:>9}")
+        if "vocab_size" in best:
+            print(f"  {'Vocab size':<38} {int(best['vocab_size']):>9} {VOYNICH['vocab_size']:>9}")
 
 
 show_best_seeds(df_pass, TEXT_NAMES)
@@ -131,7 +133,7 @@ if len(TEXT_NAMES) == 1:
 
 for ax, text_name in zip(axes, TEXT_NAMES):
     sub       = df_pass[df_pass["text_name"] == text_name]
-    slope_col = f"{text_name}_zipf_slope"
+    slope_col = "zipf_slope"
     if slope_col not in sub.columns:
         continue
 
@@ -166,7 +168,7 @@ TEXT_FILE_MAP = {
 
 for ax, text_name in zip(axes, TEXT_NAMES):
     sub       = df_pass[df_pass["text_name"] == text_name].copy()
-    slope_col = f"{text_name}_zipf_slope"
+    slope_col = "zipf_slope"
     if slope_col not in sub.columns or sub.empty:
         continue
 
@@ -249,7 +251,7 @@ spark.sql(f"""
     COUNT(*)                                                    AS total,
     SUM(CASE WHEN decode_ok THEN 1 ELSE 0 END)                  AS passed,
     ROUND(AVG(CASE WHEN decode_ok THEN 1.0 ELSE 0 END) * 100, 1) AS pass_pct,
-    ROUND(AVG(CASE WHEN decode_ok THEN bible_zipf_slope END), 4)  AS mean_zipf_slope
+    ROUND(AVG(CASE WHEN decode_ok THEN zipf_slope END), 4)      AS mean_zipf_slope
   FROM {CATALOG}.{SCHEMA}.results
   GROUP BY run_id
   ORDER BY run_id DESC
