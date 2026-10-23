@@ -55,6 +55,7 @@ print(f"Seeds:     {NUM_SEEDS}")
 print(f"Text size: {TEXT_SIZE} chars per corpus")
 print(f"Encode seed: {ENCODE_SEED}")
 print(f"Encoder:   {ENCODER.name}")
+print(f"Vocab ID:  {VOCAB_ID}")
 
 # COMMAND ----------
 
@@ -75,7 +76,9 @@ if missing:
     raise FileNotFoundError(
         "Pipeline aborted — missing source files:\n" + "\n".join(missing) +
         "\n\nUpload them via Catalog > voynich > Volumes > raw_files > Upload"
+        "\n(voynichtokencounts.csv is created by running 05_build_vocab)"
     )
+load_vms_baseline()   # fails fast if 05_build_vocab hasn't been run for this vocab
 print("Pre-flight checks passed.")
 
 # COMMAND ----------
@@ -137,6 +140,7 @@ def run_seed(seed: int) -> tuple:
                 "seed":       seed,
                 "encode_seed": ENCODE_SEED,
                 "encoder":    ENCODER.name,
+                "vocab_id":   VOCAB_ID,
                 "text_name":  text_name,
                 "decode_ok":  decode_ok,
                 "created_at": ts,
@@ -150,6 +154,7 @@ def run_seed(seed: int) -> tuple:
                     "seed":          seed,
                     "encode_seed":   ENCODE_SEED,
                     "encoder":       ENCODER.name,
+                    "vocab_id":      VOCAB_ID,
                     "text_name":     text_name,
                     "error_type":    "decode_mismatch",
                     "error_message": f"decoded length={len(decoded)}, expected={len(text)}",
@@ -164,6 +169,7 @@ def run_seed(seed: int) -> tuple:
                     "seed":       seed,
                     "encode_seed": ENCODE_SEED,
                     "encoder":    ENCODER.name,
+                    "vocab_id":   VOCAB_ID,
                     "text_name":  text_name,
                     "position":   i,
                     "token":      token,
@@ -178,6 +184,7 @@ def run_seed(seed: int) -> tuple:
                 "seed":          seed,
                 "encode_seed":   ENCODE_SEED,
                 "encoder":       ENCODER.name,
+                "vocab_id":      VOCAB_ID,
                 "text_name":     text_name,
                 "error_type":    type(e).__name__,
                 "error_message": str(e),
@@ -194,6 +201,7 @@ with mlflow.start_run(run_name=RUN_ID) as parent_run:
         "num_seeds":  NUM_SEEDS,
         "encode_seed": ENCODE_SEED,
         "encoder":    ENCODER.name,
+        "vocab_id":   VOCAB_ID,
         "text_size":  TEXT_SIZE,
         **({"anchor_prob": 0.15} if ENCODER.name == "anchor_mutation" else {}),
         "stat_tests": str(list(STAT_TESTS.keys())),
@@ -221,6 +229,7 @@ with mlflow.start_run(run_name=RUN_ID) as parent_run:
                     mlflow.log_param("seed",      seed)
                     mlflow.log_param("encode_seed", ENCODE_SEED)
                     mlflow.log_param("encoder",   ENCODER.name)
+                    mlflow.log_param("vocab_id",  VOCAB_ID)
                     mlflow.log_param("text_name", row["text_name"])
                     mlflow.set_tag("decode_ok",   str(row["decode_ok"]))
                     if row["decode_ok"]:
@@ -273,6 +282,7 @@ def reshape_results(rows):
             "seed": row["seed"],
             "encode_seed": row["encode_seed"],
             "encoder": row["encoder"],
+            "vocab_id": row["vocab_id"],
             "text_name": text_name,
             "decode_ok": row["decode_ok"],
             "created_at": row["created_at"],
@@ -300,7 +310,7 @@ df = spark.createDataFrame(pd.DataFrame(reshaped_results)) \
      .withColumnRenamed("zipf_r_squared", "zipf_r2") \
      .withColumnRenamed("unigram_entropy", "entropy") \
      .select(
-         "run_id", "seed", "encode_seed", "encoder", "text_name", "decode_ok",
+         "run_id", "seed", "encode_seed", "encoder", "vocab_id", "text_name", "decode_ok",
          "zipf_slope", "zipf_r2", "hapax_ratio", "entropy",
          "vocab_size", "token_count", "avg_length",
          "letter_unigram_predictability", "letter_bigram_predictability",
@@ -350,7 +360,7 @@ print(f"  Seeds:      {NUM_SEEDS}")
 print(f"  Pass rate:  {pass_rate:.1%}  ({len(passing)}/{len(all_results)} text encodings)")
 print(f"  Failures:   {len(all_failures)}")
 if mean_zipf:
-    print(f"  Mean Zipf:  {mean_zipf:.4f}  (VMS baseline: -0.894)")
+    print(f"  Mean Zipf:  {mean_zipf:.4f}  (VMS baseline: {load_vms_baseline()['zipf_slope']})")
 print(f"{'='*45}")
 print()
 print("View in MLflow: Experiments > voynich-cipher-sweep")

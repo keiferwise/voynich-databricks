@@ -16,7 +16,8 @@ SCHEMA  = "voynich"
 VOLUME  = "raw_files"
 
 VOLUME_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"
-VOCAB_PATH  = f"{VOLUME_PATH}/voynichtokencounts.csv"
+VOCAB_PATH  = f"{VOLUME_PATH}/voynichtokencounts.csv"     # built by 05_build_vocab
+BASELINE_PATH = f"{VOLUME_PATH}/vms_baseline.json"         # built by 05_build_vocab
 # ─────────────────────────────────────────────────────────────────────────────
 
 # COMMAND ----------
@@ -25,6 +26,8 @@ VOCAB_PATH  = f"{VOLUME_PATH}/voynichtokencounts.csv"
 
 # COMMAND ----------
 
+import hashlib
+import json
 import random
 import re
 import pandas as pd
@@ -61,7 +64,26 @@ EVA_ANCHOR_WEIGHTS = eva_df[
     (~eva_df["token"].isin(GALLOWS))
 ]["count"].tolist()
 
-print(f"Vocabulary loaded: {len(EVA_WORD_FREQ)} tokens")
+# Identifies the vocabulary a result was produced with — the encoder samples words
+# from this list, so results are only comparable within one vocab_id
+with open(VOCAB_PATH, "rb") as f:
+    VOCAB_ID = hashlib.sha256(f.read()).hexdigest()[:12]
+
+
+def load_vms_baseline() -> dict:
+    """VMS statistics written by 05_build_vocab for the current vocabulary."""
+    try:
+        with open(BASELINE_PATH, encoding="utf-8") as f:
+            baseline = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{BASELINE_PATH} not found - run 05_build_vocab first")
+    if baseline.get("vocab_id") != VOCAB_ID:
+        raise ValueError(f"{BASELINE_PATH} was built for vocab {baseline.get('vocab_id')}, "
+                         f"but the current vocab is {VOCAB_ID} - re-run 05_build_vocab")
+    return baseline
+
+
+print(f"Vocabulary loaded: {len(EVA_WORD_FREQ)} tokens (vocab_id {VOCAB_ID})")
 print(f"Anchor candidates (len >= {MIN_ANCHOR_LENGTH}): {len(EVA_ANCHOR_CANDIDATES)}")
 
 # COMMAND ----------
@@ -674,7 +696,7 @@ def compute_token_lengths(tokens: list, text_name: str) -> dict:
 
 def compute_letter_predictability(tokens: list, text_name: str,
                                   n_splits: int = 10) -> dict:
-    word_types = list(set(tokens))
+    word_types = sorted(set(tokens))   # sorted: set order varies between Python processes
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     unigram_scores, bigram_scores = [], []
 

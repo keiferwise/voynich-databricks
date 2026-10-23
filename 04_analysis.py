@@ -68,17 +68,8 @@ print(f"Seeds: {passing}/{total} passed decode ({passing/total:.1%})")
 
 # COMMAND ----------
 
-# Real VMS baseline values
-VOYNICH = {
-    "zipf_slope":          -0.894,
-    "zipf_r2":              0.911,
-    "hapax_ratio":          0.698,
-    "unigram_entropy":      9.666,
-    "letter_unigram_pred": 14.65,
-    "letter_bigram_pred":  40.02,
-    "avg_length":           6.2,
-    "vocab_size":          7091,
-}
+# VMS baseline values, computed by 05_build_vocab with the same stat tests
+VOYNICH = load_vms_baseline()
 
 TEXT_NAMES = sorted(df_pass["text_name"].unique().tolist())
 

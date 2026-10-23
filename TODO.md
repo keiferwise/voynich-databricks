@@ -59,3 +59,8 @@ The UI's "pick an encoder / pick tests" options depend on the two registries exi
 - [ ] Move `CATALOG` to a single config location instead of editing it in multiple notebooks
 - [ ] Replace `dbutils.notebook.run()` fallback note in `00_pipeline` with a Databricks Job definition
 - [ ] Pin dependency versions (`scipy`, `scikit-learn`, `matplotlib`)
+- [x] Generate the VMS vocabulary from the transcription (`05_build_vocab`): fixes dropped foldout/`fRos` pages, `?` words and markup leaking into words
+- [x] Compute VMS baselines with the same stat tests as the cipher output (`vms_baseline.json`) instead of hard-coding them
+- [x] Record `vocab_id` on every result so runs from different vocabularies aren't mixed
+- [x] Make letter predictability deterministic (sort word types before the CV split)
+- [ ] Note which transcription `voynich-ms.txt` is (file header says `IVTFF Eva- 2.0`) in the README data sources

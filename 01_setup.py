@@ -7,7 +7,7 @@
 # MAGIC **Before running:** check your catalog name in the Catalog Explorer on the left
 # MAGIC sidebar and update `CATALOG` below if it is not `main`.
 # MAGIC
-# MAGIC After running, upload the four source files manually:
+# MAGIC After running, upload the three source files manually, then run `05_build_vocab`:
 # MAGIC **Catalog > voynich > Volumes > raw_files > Upload**
 
 # COMMAND ----------
@@ -35,11 +35,12 @@ spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.{VOLUME}")
 print(f"Volume  {CATALOG}.{SCHEMA}.{VOLUME} ready.")
 
 print()
-print("Next: upload these four files via Catalog > voynich > Volumes > raw_files > Upload:")
+print("Next: upload these three files via Catalog > voynich > Volumes > raw_files > Upload:")
 print("  - voynich-ms.txt")
 print("  - akjv.txt")
 print("  - newton.txt")
-print("  - voynichtokencounts.csv")
+print()
+print("Then run 05_build_vocab to create voynichtokencounts.csv and vms_baseline.json.")
 
 # COMMAND ----------
 
@@ -54,6 +55,7 @@ spark.sql(f"""
     seed          INT       NOT NULL,
     encode_seed   INT,
     encoder       STRING,
+    vocab_id      STRING,
     text_name     STRING    NOT NULL,
     decode_ok     BOOLEAN   NOT NULL,
     zipf_slope    DOUBLE,
@@ -81,6 +83,7 @@ spark.sql(f"""
     seed          INT       NOT NULL,
     encode_seed   INT,
     encoder       STRING,
+    vocab_id      STRING,
     text_name     STRING    NOT NULL,
     position      INT       NOT NULL,
     token         STRING    NOT NULL,
@@ -101,6 +104,7 @@ spark.sql(f"""
     seed          INT       NOT NULL,
     encode_seed   INT,
     encoder       STRING,
+    vocab_id      STRING,
     text_name     STRING    NOT NULL,
     error_type    STRING,
     error_message STRING,
