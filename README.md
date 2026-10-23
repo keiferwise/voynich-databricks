@@ -48,6 +48,21 @@ Other details: the text is lower-cased and stripped to `a–z`. The ciphertext s
 with a gallows character (`k`, `t`, `f`, `p`) followed by an anchor word. The text is
 encoded in 100-character chunks, which become lines.
 
+### Encoders
+
+The cipher above is one of several encoders registered in `ENCODERS` in
+`02_encoder_lib.py`. A sweep picks one by name with its `encoder` widget.
+
+| Encoder | Description |
+|---------|-------------|
+| `anchor_mutation` (default) | The cipher described above. |
+| `substitution` | Control baseline. Each letter always becomes the same VMS word, so the output has only 26 word types. It shows what a naive cipher's statistics look like next to the manuscript. The encode seed has no effect. |
+
+Every encoder implements the same three methods: `generate_config(seed)`,
+`encode(text, config, encode_seed)` and `decode(tokens, config)`. The sweep only
+calls those, so adding an encoder means writing a subclass of `Encoder` and adding it
+to `ENCODERS`.
+
 ---
 
 ## Repository layout
@@ -56,7 +71,7 @@ encoded in 100-character chunks, which become lines.
 |----------|---------|
 | [`00_pipeline.py`](00_pipeline.py) | Entry point. Runs `03_sweep` through `dbutils.notebook.run()`, then shows the analysis for that run inline. |
 | [`01_setup.py`](01_setup.py) | Run once. Creates the schema, the volume, and the `results`, `ciphertext`, and `failed_runs` Delta tables. |
-| [`02_encoder_lib.py`](02_encoder_lib.py) | Library, loaded with `%run`. EVA parser, rule-set generation, encoder, decoder, and the statistical tests registry (`STAT_TESTS`). |
+| [`02_encoder_lib.py`](02_encoder_lib.py) | Library, loaded with `%run`. EVA parser, rule-set generation, encoder, decoder, the encoder registry (`ENCODERS`), and the statistical tests registry (`STAT_TESTS`). |
 | [`03_sweep.py`](03_sweep.py) | Encodes every text with each seed in parallel, checks the decode, runs the stats, and writes to Delta and MLflow. |
 | [`04_analysis.py`](04_analysis.py) | Standalone analysis of one run: best-seed table, Zipf plots, raw results, failures, and pass rate over time. |
 
@@ -120,6 +135,7 @@ available in your environment. Run `03_sweep.py` with its widgets set, then run
 | `text_size` | `40000` | Characters read from each source text before cleaning |
 | `encode_seed` | `0` | Seed for choosing between valid spellings (see above) |
 | `run_id` | timestamp | Label for the run. Leave blank to use `YYYYMMDD_HHMMSS`. |
+| `encoder` | `anchor_mutation` | Which registered encoder to use (dropdown) |
 
 Each seed is processed for every text in a thread pool of 4 workers. Any exception
 becomes a row in `failed_runs`, so one bad seed doesn't stop the sweep.
@@ -132,7 +148,7 @@ becomes a row in `failed_runs`, so one bad seed doesn't stop the sweep.
 
 | Table | Grain | Contents |
 |-------|-------|----------|
-| `results` | one row per run × seed × text | `decode_ok` plus every metric below |
+| `results` | one row per run × seed × text | `encoder`, `decode_ok`, and every metric below |
 | `ciphertext` | one row per token | Full encoded sequence, with `is_gallows` and `is_anchor` flags |
 | `failed_runs` | one row per failure | Error type and message for decode errors or exceptions |
 
@@ -175,7 +191,7 @@ Some useful queries:
 SELECT * FROM workspace.voynich.results WHERE run_id = '<run_id>';
 
 -- Closest Zipf slopes across all runs
-SELECT run_id, seed, encode_seed, text_name, zipf_slope, hapax_ratio, entropy
+SELECT run_id, encoder, seed, encode_seed, text_name, zipf_slope, hapax_ratio, entropy
 FROM workspace.voynich.results
 WHERE decode_ok
 ORDER BY abs(zipf_slope - (-0.894))
@@ -186,5 +202,5 @@ LIMIT 20;
 
 ## Roadmap
 
-See [`TODO.md`](TODO.md). Planned work includes encoders you can swap in and out, more
+See [`TODO.md`](TODO.md). Planned work includes more encoders, more
 statistical tests, and a UI for configuring, launching, and reviewing runs.

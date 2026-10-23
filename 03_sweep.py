@@ -15,6 +15,8 @@
 # MAGIC - `encode_seed` — seeds the encoder's spelling choices (default 0). The rule
 # MAGIC   seed picks the rule set; the encode seed picks which of its many valid
 # MAGIC   ciphertexts you get. Same pair = same ciphertext.
+# MAGIC - `encoder`   — which registered encoder to use (default `anchor_mutation`);
+# MAGIC   see `ENCODERS` in `02_encoder_lib`
 
 # COMMAND ----------
 
@@ -38,6 +40,7 @@ dbutils.widgets.text("num_seeds", "1",   "Number of seeds")
 dbutils.widgets.text("text_size", "40000", "Characters per text")
 dbutils.widgets.text("run_id",    "",      "Run ID (blank = auto)")
 dbutils.widgets.text("encode_seed", "0",   "Encode seed")
+dbutils.widgets.dropdown("encoder", DEFAULT_ENCODER, list(ENCODERS.keys()), "Encoder")
 
 from datetime import datetime
 
@@ -45,11 +48,13 @@ NUM_SEEDS = int(dbutils.widgets.get("num_seeds"))
 TEXT_SIZE = int(dbutils.widgets.get("text_size"))
 RUN_ID    = dbutils.widgets.get("run_id").strip() or datetime.now().strftime("%Y%m%d_%H%M%S")
 ENCODE_SEED = int(dbutils.widgets.get("encode_seed"))
+ENCODER   = get_encoder(dbutils.widgets.get("encoder"))
 
 print(f"Run ID:    {RUN_ID}")
 print(f"Seeds:     {NUM_SEEDS}")
 print(f"Text size: {TEXT_SIZE} chars per corpus")
 print(f"Encode seed: {ENCODE_SEED}")
+print(f"Encoder:   {ENCODER.name}")
 
 # COMMAND ----------
 
@@ -116,21 +121,22 @@ def run_seed(seed: int) -> tuple:
     Returns (result_rows, ciphertext_rows, failure_rows).
     Never raises — all exceptions are captured as failure rows.
     """
-    config        = generate_random_config(seed=seed)
-    anchor_tokens = {a.token for a in config.anchors}
+    config        = ENCODER.generate_config(seed)
+    anchor_tokens = ENCODER.anchor_tokens(config)
     result_rows, cipher_rows, failure_rows = [], [], []
     ts = datetime.now(timezone.utc)
 
     for text_name, text in TEXTS.items():
         try:
-            encoded   = encode_text(text, config, encode_seed=ENCODE_SEED)
-            decoded   = decode_text(encoded, config.anchors, config.rules).lstrip("?")
+            encoded   = ENCODER.encode(text, config, ENCODE_SEED)
+            decoded   = ENCODER.decode(encoded, config)
             decode_ok = (decoded == text)
 
             row = {
                 "run_id":     RUN_ID,
                 "seed":       seed,
                 "encode_seed": ENCODE_SEED,
+                "encoder":    ENCODER.name,
                 "text_name":  text_name,
                 "decode_ok":  decode_ok,
                 "created_at": ts,
@@ -143,6 +149,7 @@ def run_seed(seed: int) -> tuple:
                     "run_id":        RUN_ID,
                     "seed":          seed,
                     "encode_seed":   ENCODE_SEED,
+                    "encoder":       ENCODER.name,
                     "text_name":     text_name,
                     "error_type":    "decode_mismatch",
                     "error_message": f"decoded length={len(decoded)}, expected={len(text)}",
@@ -156,6 +163,7 @@ def run_seed(seed: int) -> tuple:
                     "run_id":     RUN_ID,
                     "seed":       seed,
                     "encode_seed": ENCODE_SEED,
+                    "encoder":    ENCODER.name,
                     "text_name":  text_name,
                     "position":   i,
                     "token":      token,
@@ -169,6 +177,7 @@ def run_seed(seed: int) -> tuple:
                 "run_id":        RUN_ID,
                 "seed":          seed,
                 "encode_seed":   ENCODE_SEED,
+                "encoder":       ENCODER.name,
                 "text_name":     text_name,
                 "error_type":    type(e).__name__,
                 "error_message": str(e),
@@ -184,8 +193,9 @@ with mlflow.start_run(run_name=RUN_ID) as parent_run:
     mlflow.log_params({
         "num_seeds":  NUM_SEEDS,
         "encode_seed": ENCODE_SEED,
+        "encoder":    ENCODER.name,
         "text_size":  TEXT_SIZE,
-        "anchor_prob": 0.15,
+        **({"anchor_prob": 0.15} if ENCODER.name == "anchor_mutation" else {}),
         "stat_tests": str(list(STAT_TESTS.keys())),
     })
     mlflow.set_tag("status", "running")
@@ -210,6 +220,7 @@ with mlflow.start_run(run_name=RUN_ID) as parent_run:
                 ):
                     mlflow.log_param("seed",      seed)
                     mlflow.log_param("encode_seed", ENCODE_SEED)
+                    mlflow.log_param("encoder",   ENCODER.name)
                     mlflow.log_param("text_name", row["text_name"])
                     mlflow.set_tag("decode_ok",   str(row["decode_ok"]))
                     if row["decode_ok"]:
@@ -261,6 +272,7 @@ def reshape_results(rows):
             "run_id": row["run_id"],
             "seed": row["seed"],
             "encode_seed": row["encode_seed"],
+            "encoder": row["encoder"],
             "text_name": text_name,
             "decode_ok": row["decode_ok"],
             "created_at": row["created_at"],
@@ -288,7 +300,7 @@ df = spark.createDataFrame(pd.DataFrame(reshaped_results)) \
      .withColumnRenamed("zipf_r_squared", "zipf_r2") \
      .withColumnRenamed("unigram_entropy", "entropy") \
      .select(
-         "run_id", "seed", "encode_seed", "text_name", "decode_ok",
+         "run_id", "seed", "encode_seed", "encoder", "text_name", "decode_ok",
          "zipf_slope", "zipf_r2", "hapax_ratio", "entropy",
          "vocab_size", "token_count", "avg_length",
          "letter_unigram_predictability", "letter_bigram_predictability",

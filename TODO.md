@@ -15,13 +15,13 @@ The UI's "pick an encoder / pick tests" options depend on the two registries exi
 - [ ] ~~Contributing section~~ (dropped for now)
 
 ## 2. Pluggable encoders / decoders
-- [ ] Define an encoder interface (e.g. `name`, `generate_config(seed)`, `encode(text, config, encode_seed)`, `decode(tokens, config)`)
-- [ ] Wrap the current anchor/mutation encoder in `02_encoder_lib.py` as the first implementation
-- [ ] Encoder registry (name → implementation) so a run can select one by name
-- [ ] Add `encoder` parameter to `03_sweep` and record it in the results tables
-- [ ] Update Delta table schemas in `01_setup` (encoder name, encoder version/params)
+- [x] Define an encoder interface (e.g. `name`, `generate_config(seed)`, `encode(text, config, encode_seed)`, `decode(tokens, config)`)
+- [x] Wrap the current anchor/mutation encoder in `02_encoder_lib.py` as the first implementation
+- [x] Encoder registry (name → implementation) so a run can select one by name
+- [x] Add `encoder` parameter to `03_sweep` and record it in the results tables
+- [x] Update Delta table schemas in `01_setup` (encoder name, encoder version/params)
 - [ ] Round-trip test harness that any new encoder must pass (encode → decode == cleaned plaintext)
-- [ ] Add at least one second encoder (e.g. a simple baseline/control cipher) to prove the abstraction
+- [x] Add at least one second encoder (e.g. a simple baseline/control cipher) to prove the abstraction
 
 ## 3. Pluggable statistical tests
 - [ ] Define a test interface (e.g. `name`, `compute(tokens) -> dict`, optional pass/fail threshold)

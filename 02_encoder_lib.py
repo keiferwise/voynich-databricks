@@ -536,7 +536,94 @@ def decode_text(tokens: list, anchors: list, rules: list) -> str:
 
 # COMMAND ----------
 
-# MAGIC %md ### 9. Statistical Tests
+# MAGIC %md ### 9. Encoder Registry
+# MAGIC
+# MAGIC To add an encoder: subclass `Encoder`, implement its three methods, then add
+# MAGIC an instance to `ENCODERS`. The sweep picks one by name via its `encoder` widget.
+# MAGIC
+# MAGIC - `generate_config(seed)` — build the key for a rule seed (same seed = same key)
+# MAGIC - `encode(text, config, encode_seed)` — cleaned `a–z` text → list of EVA tokens
+# MAGIC   (`"\n"` tokens mark line breaks and are ignored by stats and decoding)
+# MAGIC - `decode(tokens, config)` — tokens → text; must equal the input for a pass
+
+# COMMAND ----------
+
+class Encoder:
+    name = ""
+
+    def generate_config(self, seed: int):
+        raise NotImplementedError
+
+    def encode(self, text: str, config, encode_seed: int) -> list:
+        raise NotImplementedError
+
+    def decode(self, tokens: list, config) -> str:
+        raise NotImplementedError
+
+    def anchor_tokens(self, config) -> set:
+        """Tokens flagged `is_anchor` in the ciphertext table. Empty if not applicable."""
+        return set()
+
+
+class AnchorMutationEncoder(Encoder):
+    """The original cipher: anchors, base words and mutations of earlier words."""
+    name = "anchor_mutation"
+
+    def generate_config(self, seed: int) -> EncoderConfig:
+        return generate_random_config(seed=seed)
+
+    def encode(self, text: str, config: EncoderConfig, encode_seed: int) -> list:
+        return encode_text(text, config, encode_seed=encode_seed)
+
+    def decode(self, tokens: list, config: EncoderConfig) -> str:
+        return decode_text(tokens, config.anchors, config.rules).lstrip("?")
+
+    def anchor_tokens(self, config: EncoderConfig) -> set:
+        return {a.token for a in config.anchors}
+
+
+class SubstitutionEncoder(Encoder):
+    """
+    Control baseline: each letter always becomes the same EVA word (26 word types).
+    Its stats show what a naive cipher looks like next to the VMS.
+    The encode seed has no effect — there is only one valid ciphertext.
+    """
+    name = "substitution"
+
+    def generate_config(self, seed: int) -> dict:
+        rng   = random.Random(seed)
+        words = rng.sample(sorted(set(EVA_ANCHOR_CANDIDATES)), k=26)
+        return dict(zip("abcdefghijklmnopqrstuvwxyz", words))
+
+    def encode(self, text: str, config: dict, encode_seed: int,
+               chunk_size: int = 100) -> list:
+        cleaned = clean_text(text)
+        output  = []
+        for i in range(0, len(cleaned), chunk_size):
+            output.extend(config[ch] for ch in cleaned[i:i+chunk_size])
+            output.append("\n")
+        return output
+
+    def decode(self, tokens: list, config: dict) -> str:
+        reverse = {word: ch for ch, word in config.items()}
+        return "".join(reverse.get(t, "?") for t in tokens if t != "\n")
+
+
+ENCODERS = {e.name: e for e in [
+    AnchorMutationEncoder(),
+    SubstitutionEncoder(),
+]}
+DEFAULT_ENCODER = "anchor_mutation"
+
+
+def get_encoder(name: str) -> Encoder:
+    if name not in ENCODERS:
+        raise ValueError(f"Unknown encoder '{name}'. Available: {sorted(ENCODERS)}")
+    return ENCODERS[name]
+
+# COMMAND ----------
+
+# MAGIC %md ### 10. Statistical Tests
 
 # COMMAND ----------
 
@@ -624,7 +711,7 @@ def compute_letter_predictability(tokens: list, text_name: str,
 
 # COMMAND ----------
 
-# MAGIC %md ### 10. Stat Test Registry
+# MAGIC %md ### 11. Stat Test Registry
 # MAGIC
 # MAGIC To add a test: write the function above, then add it here.
 # MAGIC To remove a test: comment out its line.
@@ -653,3 +740,4 @@ def run_all_stats(encoded: list, text_name: str) -> dict:
 print("Encoder library loaded.")
 print(f"  Volume path: {VOLUME_PATH}")
 print(f"  Stat tests:  {list(STAT_TESTS.keys())}")
+print(f"  Encoders:    {list(ENCODERS.keys())}")

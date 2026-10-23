@@ -186,8 +186,10 @@ for ax, text_name in zip(axes, TEXT_NAMES):
         raw = f.read()
 
     text    = clean_text(raw[:TEXT_SIZE])
-    config  = generate_random_config(seed=best_seed)
-    encoded = encode_text(text, config, encode_seed=best_encode_seed)
+    # Rows written before the encoder column existed all used anchor_mutation
+    encoder = get_encoder(best_row["encoder"] if pd.notna(best_row.get("encoder")) else DEFAULT_ENCODER)
+    config  = encoder.generate_config(best_seed)
+    encoded = encoder.encode(text, config, best_encode_seed)
     tokens  = [t for t in encoded if t not in GALLOWS and t != "." and t != "\n"]
 
     from collections import Counter
@@ -204,7 +206,7 @@ for ax, text_name in zip(axes, TEXT_NAMES):
             color="green", linestyle="--", label=f"VMS slope ({VOYNICH['zipf_slope']})")
     ax.set_xlabel("log(rank)")
     ax.set_ylabel("log(frequency)")
-    ax.set_title(f"{text_name.capitalize()} — Zipf plot (seed {best_seed})")
+    ax.set_title(f"{text_name.capitalize()} — Zipf plot ({encoder.name}, seed {best_seed})")
     ax.legend()
 
 plt.tight_layout()
